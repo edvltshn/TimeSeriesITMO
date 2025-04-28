@@ -163,7 +163,7 @@ class LGBMForecaster:
         if not all(c in df_processed.columns for c in ['item_id', 'date']): raise ValueError("Нужны 'item_id' и 'date'.")
         df_processed['date'] = pd.to_datetime(df_processed['date'])
 
-        # 1. Календарные признаки ... (без изменений)
+        # 1. Календарные признаки
         df_processed['dayofweek'] = df_processed['date'].dt.dayofweek; df_processed['year'] = df_processed['date'].dt.year
         df_processed['dayofmonth'] = df_processed['date'].dt.day; df_processed['weekofyear'] = df_processed['date'].dt.isocalendar().week.astype(int)
         df_processed['dayofyear'] = df_processed['date'].dt.dayofyear
@@ -224,24 +224,22 @@ class LGBMForecaster:
             # Создаем пустые колонки, чтобы модель не ругалась при predict
             for col in lag_roll_cols: df_processed[col] = 0
 
-        # 3. Числовой ID Товара ... (без изменений)
+        # 3. Числовой ID Товара
         df_processed['item_id_numeric'] = df_processed['item_id'].apply(self._get_numeric_item_id)
 
-        # 4. Удаление исходного ID ... (без изменений)
+        # 4. Удаление исходного ID
         cols_to_drop = ['item_id', 'event_name_1', 'event_type_1']
         df_processed.drop(columns=[col for col in cols_to_drop if col in df_processed.columns], inplace=True, errors='ignore')
 
         # 5. Заполнение пропусков и оптимизация типов
-        # Теперь target_col НИКОГДА не будет в feature_cols_final для прогноза
         feature_cols_final = [col for col in df_processed.columns if col not in [target_col, 'date']]
         print(f"    Заполнение NaN и оптимизация типов для {len(feature_cols_final)} признаков...")
         for col in feature_cols_final:
             if pd.api.types.is_numeric_dtype(df_processed[col].dtype):
                 if df_processed[col].isnull().any():
-                    # print(f"      Filling NaNs in {col}") # Отладка
                     df_processed[col] = df_processed[col].fillna(0) # Заполняем нулями (особенно важно для лагов/окон)
 
-            # Оптимизация памяти ... (без изменений)
+            # Оптимизация памяти
             if df_processed[col].dtype == 'float64': df_processed[col] = df_processed[col].astype('float32')
             elif pd.api.types.is_integer_dtype(df_processed[col].dtype):
                  max_v, min_v = df_processed[col].max(), df_processed[col].min()
@@ -263,7 +261,7 @@ class LGBMForecaster:
         """
         print(f"\n--- Запуск обучения LGBM для {self.store_id} ---")
         fit_start_time = time.time()
-        TARGET = 'cnt' # Имя целевой переменной
+        TARGET = 'cnt'
 
         if train_base_df is None or TARGET not in train_base_df.columns:
             print("  Ошибка: Предоставлен некорректный train_base_df."); return
@@ -292,8 +290,6 @@ class LGBMForecaster:
             # Определяем финальный список признаков и категорий
             self.features = [col for col in train_features_df.columns if col not in [TARGET, 'date']]
             potential_cats = ['item_id_numeric', 'dayofweek', 'year', 'dayofmonth', 'weekofyear', 'dayofyear', 'wday']
-            # Добавляем cashback, если он есть СРЕДИ ФИНАЛЬНЫХ ПРИЗНАКОВ
-            if 'cashback' in self.features: potential_cats.append('cashback')
             self.categorical_features = [col for col in potential_cats if col in self.features]
 
             X_train = train_features_df[self.features]
@@ -386,12 +382,10 @@ class LGBMForecaster:
             'model': os.path.join(self.model_dir, f"lgbm_model_{self.store_id}.joblib"),
             'features': os.path.join(self.model_dir, f"features_{self.store_id}.joblib"),
             'cats': os.path.join(self.model_dir, f"categorical_features_{self.store_id}.joblib"),
-            # 'events': os.path.join(self.model_dir, f"frequent_events_{self.store_id}.joblib"), # Убрали
             'history': os.path.join(self.model_dir, f"history_df_{self.store_id}.joblib")
         }
         objects_to_save = {
             'model': self.model_lgbm, 'features': self.features, 'cats': self.categorical_features,
-            # 'events': self.frequent_events, # Убрали
              'history': self.history_df
         }
         save_errors = 0
@@ -410,15 +404,14 @@ class LGBMForecaster:
             'model': os.path.join(self.model_dir, f"lgbm_model_{self.store_id}.joblib"),
             'features': os.path.join(self.model_dir, f"features_{self.store_id}.joblib"),
             'cats': os.path.join(self.model_dir, f"categorical_features_{self.store_id}.joblib"),
-            # 'events': os.path.join(self.model_dir, f"frequent_events_{self.store_id}.joblib"), # Убрали
             'history': os.path.join(self.model_dir, f"history_df_{self.store_id}.joblib")
         }
         loaded_correctly = True
         # Атрибуты, которые нужно загрузить
-        attributes_to_load = ['model_lgbm', 'features', 'categorical_features', #'events',
+        attributes_to_load = ['model_lgbm', 'features', 'categorical_features',
                               'history_df']
         # Соответствие ключей путей и имен атрибутов
-        paths_keys = ['model', 'features', 'cats', #'events',
+        paths_keys = ['model', 'features', 'cats',
                        'history']
 
         for name_key, attr_name in zip(paths_keys, attributes_to_load):
@@ -441,7 +434,6 @@ class LGBMForecaster:
 
     def evaluate(self, y_true_df, y_pred_df):
         """Оценивает качество прогноза."""
-        # ... (Метод оценки без изменений) ...
         print("\n--- Оценка качества прогноза ---"); required_true = ['date', 'item_id', 'cnt']; required_pred = ['date', 'item_id', 'forecast']
         if not all(c in y_true_df.columns for c in required_true): print("Ошибка: y_true_df не хватает колонок."); return None
         if not all(c in y_pred_df.columns for c in required_pred): print("Ошибка: y_pred_df не хватает колонок."); return None
